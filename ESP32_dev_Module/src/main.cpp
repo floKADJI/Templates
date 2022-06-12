@@ -1,5 +1,7 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <WiFi.h>
+#include "SPIFFS.h"
 extern "C" {
 	#include "freertos/FreeRTOS.h"
 	#include "freertos/timers.h"
@@ -16,10 +18,10 @@ volatile bool connecting;
 volatile bool mqtt_on;
 
 // ssid.c_str() will convert these String to const char*
-String ssid = "...";
-String pwd = "...";
-String mqtt_server = "...";
-int mqtt_port = 1883;
+String ssid, pwd, mqtt_server,mqtt_topic,mqtt_id;
+int mqtt_port;
+
+File save_File;
 
 AsyncMqttClient mqttClient;
 
@@ -37,6 +39,8 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 
 /*************************  MAIN FUNCTION  *************************************/
 void setup() {
+  DynamicJsonDocument doc(1024);
+
   // put your setup code here, to run once:
   Serial.begin(115200);
 
@@ -47,6 +51,57 @@ void setup() {
   //  mqttClient.onSubscribe(onMqttSubscribe);
   //  mqttClient.onUnsubscribe(onMqttUnsubscribe);
   //  mqttClient.onMessage(onMqttMessage);
+
+
+  if(!SPIFFS.begin(true)){
+    Serial.println("An error has occured while mainting SPIFFS");
+    return;
+  }
+
+
+  File file = SPIFFS.open("/config.txt");
+  if(!file){
+    Serial.println("Failed to open file for reading");
+    return;
+  }
+
+  DeserializationError error = deserializeJson(doc, file);
+  if (error)
+  {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.c_str());
+    return;
+  } else {
+    Serial.println("Parsing done");
+    
+    Serial.println("");
+    ssid = doc["ssid"].as<String>();
+    pwd = doc["password"].as<String>();
+    mqtt_server = doc["mqtt_server"].as<String>();
+    mqtt_port = doc["mqtt_port"].as<int>();
+    mqtt_topic = doc["mqtt_topic"].as<String>();
+
+    Serial.print("ssid :"); Serial.println(ssid);
+    Serial.print("pwd: ");  Serial.println(pwd);
+    Serial.print("mqtt_server :"); Serial.println(mqtt_server);
+    Serial.print("mqtt_port: ");  Serial.println(mqtt_port);
+    Serial.print("mqtt_topic: "); Serial.println(mqtt_topic);
+    Serial.println();
+  }
+  file.close();
+
+  save_File = SPIFFS.open("/save.txt");
+  if(!save_File){
+    Serial.println("Failed to open saved in file for reading");
+    return;
+  } else {
+    while(save_File.available()){
+      Serial.print(save_File.readString());
+    }
+    Serial.println();
+  }
+  save_File.close();
+
 }
 
 /************************** LOOP FUNCTION *************************************/
@@ -146,11 +201,11 @@ void onMqttConnect(bool sessionPresent)
   Serial.println("Connected to MQTT.");
   Serial.print("Session present: ");
   Serial.println(sessionPresent);
-  /*
+  
   uint16_t packetIdSub = mqttClient.subscribe(mqtt_topic.c_str(), 2);
   Serial.print("Subscribing at QoS 2, packetId: ");
   Serial.println(packetIdSub);
-  */
+  
   mqtt_on=true;
 
 }
@@ -198,4 +253,18 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
   Serial.print("  total: ");
   Serial.println(total);
   */
+
+ // Create another file to save data for each satellite
+      save_File = SPIFFS.open("/saved.txt", FILE_WRITE);
+      Serial.println("Save operation");
+      if(save_File){
+        save_File.println(payload);
+      //  save_File.println(String(Json_Buffer));
+        save_File.close();
+        Serial.println("Saved ok");
+      //  data_available=true;
+      //  dataSaved=false;
+      } else {
+        Serial.println("Failed to save");
+      }
 }
