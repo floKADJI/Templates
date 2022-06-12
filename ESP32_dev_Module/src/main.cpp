@@ -1,4 +1,13 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
+#include <WiFi.h>
+#include "SPIFFS.h"
+extern "C" {
+	#include "freertos/FreeRTOS.h"
+	#include "freertos/timers.h"
+}
+#include <AsyncMqttClient.h>
+
 
 void setup() {
   // put your setup code here, to run once:
