@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <Adafruit_GFX.h>    // Core graphics library
+#include <Adafruit_ST7735.h> // Hardware-specific library for ST7735
 #include <WiFi.h>
 #include "SPIFFS.h"
 extern "C" {
@@ -59,10 +61,39 @@ uint8_t year,month,day,hour,minute,second;
 String now_date,last_date,tx_date;
 String old_time, old_date;
 
-/*
-uint16_t con_tmr, sens1_tmr, sens2_tmr, sens3_tmr, sens4_tmr, sens5_tmr,sd_chk_tmr; // timers used for events trigger
-*/
 
+uint16_t  hb_tmr, date_tmr;
+uint16_t sens1_tmr, sens2_tmr, sens3_tmr, sens4_tmr, sens5_tmr; // timers used for events trigger
+
+
+/*******************************************************************************/
+/*********************** VARIABLES FOR DISPLAY MANAGEMENT **********************/
+/*******************************************************************************/
+const int16_t line_step = 18,first_line= 0;
+#define bg_color  ST77XX_BLACK
+#define bg_color2   ST77XX_CYAN
+#define txt_color1 ST77XX_ORANGE
+#define txt_color2 ST77XX_YELLOW
+#define txt_color3 ST77XX_RED
+#define txt_color4 ST77XX_GREEN
+#define txt_color5  ST77XX_WHITE
+#define con_color  ST77XX_GREEN
+
+// These pins are setting for connection with 1.44" TFT_LCD module.
+#define TFT_CS         5
+#define TFT_RST        4 
+#define TFT_DC         2
+
+// Initialize the 1.44" TFT_LCD.
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+
+
+#define hb_time     35
+// #define date_tmr  10
+#define con_time   400
+#define con_led    25
+#define button     32   //  TO REMOVE LATER
+#define pin_bat    34   //  TO CHANGE LATER
 
 /*******************************************************************************/
 /********************* FUNCTION DECLARATION ************************************/
@@ -81,6 +112,37 @@ void show_date();
 void init_sd();
 void button_isr();
 
+void splash_screen();
+//  void show_masq();
+void show_masq_2(); // Show screen for files checking
+void show_masq_3(); // Show screen for info required
+//  void show_time(int16_t c_cord,uint16_t l_cord,int16_t couleur,String);
+void disp_masq();
+
+void show_info(int16_t c_cord,uint16_t l_cord,int16_t couleur,String info,char type);
+void show_data(int16_t c_cord,uint16_t l_cord,int16_t couleur,float dat,char type);
+void clr_data(int16_t c_cord,uint16_t l_cord);
+void show_star(int16_t c_cord,uint16_t l_cord,int16_t couleur,char dat,boolean oui );
+// void show_battery(int x0,int y0,int w,int h,float vb);
+
+/*
+void load_credentials();
+void save_credentials();
+void init_amg88();
+void disp_masq();
+void show_battery(int x0,int y0,int w,int h,float vb);
+void show_eco2(int x,int y);
+void show_humidity(int x,int y);
+void show_temperature(int x,int y);
+void show_tvoc(int x,int y);
+void show_particulate(int x,int y,float part);
+void get_bme_data();
+void read_coef();
+boolean check_i2c_adr(byte adr);
+void read_credentials();
+void i2c_scanner();
+*/
+
 
 
 /*************************  MAIN FUNCTION  *************************************/
@@ -89,6 +151,11 @@ void setup() {
 
   // put your setup code here, to run once:
   Serial.begin(115200);
+
+  tft.initR(INITR_144GREENTAB); // Init ST7735R chip, green tab
+  delay(100);
+  splash_screen();
+  delay(5000);
 
   WiFi.onEvent(WiFiEvent);
 
@@ -99,6 +166,10 @@ void setup() {
   //  mqttClient.onMessage(onMqttMessage);
 
 
+  // Screen for checking all configuration files
+  show_masq_2();
+  delay(1000);
+  
   if(!SPIFFS.begin(true)){
     Serial.println("An error has occured while mainting SPIFFS");
     return;
@@ -108,33 +179,39 @@ void setup() {
   File file = SPIFFS.open("/config.txt");
   if(!file){
     Serial.println("Failed to open file for reading");
-    return;
-  }
-
-  DeserializationError error = deserializeJson(doc, file);
-  if (error)
-  {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.c_str());
+    show_info(100,18,txt_color3,"NO",'i');
     return;
   } else {
-    Serial.println("Parsing done");
-    
-    Serial.println("");
-    ssid = doc["ssid"].as<String>();
-    pwd = doc["password"].as<String>();
-    mqtt_server = doc["mqtt_server"].as<String>();
-    mqtt_port = doc["mqtt_port"].as<int>();
-    mqtt_topic = doc["mqtt_topic"].as<String>();
+    Serial.println("Config file is present");
+    show_info(100,18,txt_color4,"OK",'i');
 
-    Serial.print("ssid :"); Serial.println(ssid);
-    Serial.print("pwd: ");  Serial.println(pwd);
-    Serial.print("mqtt_server :"); Serial.println(mqtt_server);
-    Serial.print("mqtt_port: ");  Serial.println(mqtt_port);
-    Serial.print("mqtt_topic: "); Serial.println(mqtt_topic);
-    Serial.println();
+    DeserializationError error = deserializeJson(doc, file);
+    if (error)
+    {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(error.c_str());
+      return;
+    } else {
+      Serial.println("Parsing done");
+    
+      Serial.println("");
+      ssid = doc["ssid"].as<String>();
+      pwd = doc["password"].as<String>();
+      mqtt_server = doc["mqtt_server"].as<String>();
+      mqtt_port = doc["mqtt_port"].as<int>();
+      mqtt_topic = doc["mqtt_topic"].as<String>();
+
+      Serial.print("ssid :"); Serial.println(ssid);
+      Serial.print("pwd: ");  Serial.println(pwd);
+      Serial.print("mqtt_server :"); Serial.println(mqtt_server);
+      Serial.print("mqtt_port: ");  Serial.println(mqtt_port);
+      Serial.print("mqtt_topic: "); Serial.println(mqtt_topic);
+      Serial.println();
+    }
+    file.close();
   }
-  file.close();
+
+  
 
   save_File = SPIFFS.open("/save.txt");
   if(!save_File){
@@ -147,6 +224,13 @@ void setup() {
     Serial.println();
   }
   save_File.close();
+
+  delay(10000);
+  
+
+  // Screen for checking all component available
+  show_masq_3();
+  delay(1000);
 
   // Initiale the rtc
   rtc.setMode(MODE_CLOCK_32KHZ);
@@ -168,6 +252,24 @@ void setup() {
     //  show_info(100,90,txt_color4,"Ready",'i');
   }
 */
+
+/*
+  sens1_tmr=50;
+  sens2_tmr=60;
+  sens3_tmr=70;
+  sens4_tmr=80;
+  sens5_tmr=100;
+*/
+
+/* 
+  pinMode(chipSelect,OUTPUT);
+  pinMode(con_led,OUTPUT);
+  digitalWrite(con_led,HIGH);
+  button_tmr=150;
+  pinMode(button,INPUT_PULLUP);
+  pinMode(pin_bat,INPUT);
+  i2c_scanner();
+*/
   delay(10000);
 
 }
@@ -180,9 +282,30 @@ void loop() {
   mqtt_on = false;
   con_tmr = 600;
 
+  //  Display masq
+  disp_masq();
+
   while (1)
   {
     delay(100);
+
+    // Get updated time for any information to transfert
+    now_date=get_time();
+    if(last_date != now_date)
+    { 
+      show_date();
+      last_date=now_date;
+    }
+
+    // Refresh screen zone for connection management 
+    if(hb_tmr)hb_tmr--;
+    else
+    {
+      hb_tmr=hb_time;
+      show_star(78,0,ST77XX_MAGENTA,'*',true);
+      if(!connected)hb_tmr=15;
+    }
+
     if(con_tmr) con_tmr--;
     else{
       con_tmr = con_time;
@@ -204,14 +327,6 @@ void loop() {
           }
         }
       }
-    }
-
-    // Get updated time for any information to transfert
-    now_date=get_time();
-    if(last_date != now_date)
-    { 
-      // show_date();
-      last_date=now_date;
     }
 
 
@@ -472,4 +587,382 @@ void button_isr()
 //    else close_sd=true;
   }
 
+}
+
+
+// Wellcome screen 
+void splash_screen() 
+{
+  uint16_t col,lin;
+  col=0;
+  lin=0;
+  tft.setTextWrap(false);
+  tft.fillScreen(bg_color);
+  tft.setTextColor(txt_color4);
+  tft.setTextSize(2);
+
+  tft.setCursor(col, lin);
+//         ("01234567890");
+  tft.print("AIR QUALITY");
+  lin +=18;
+  col=5;
+  tft.setCursor(col, lin);
+  tft.print(" REGENORD  ");
+  lin +=18;
+  col=0;
+  tft.setCursor(col, lin);
+  //       ("01234567890");
+  tft.print("     & ");
+  col=10;
+  lin +=18;
+  tft.setCursor(col, lin);
+  tft.print(" MEGATEC ");
+  lin +=18;
+  lin +=18;
+  lin +=18;
+  //lin +=18;
+  col=0;
+  //tft.setFont()
+  tft.setTextColor(txt_color5);
+  tft.setCursor(col, lin);
+  tft.print(" (C)  2021 ");
+
+  delay(5000);
+}
+
+/*
+void show_masq()
+{
+  int16_t col_cord,line_cord;
+  tft.fillScreen(bg_color);
+  col_cord=0;
+  line_cord=first_line;
+  tft.setCursor(col_cord,line_cord);
+  tft.setTextSize(1,1);
+  tft.setTextColor(txt_color2);
+  tft.setTextSize(2,2);
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("T : ");
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("RH : ");   
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("CO2 : ");  
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("VOC : ");
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("P10 : ");
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("P25 : ");   
+}
+*/
+
+void show_masq_2()
+{
+  int16_t col_cord,line_cord;
+  tft.fillScreen(bg_color);
+  col_cord=0;
+  line_cord=first_line;
+  tft.setCursor(col_cord,line_cord);
+  tft.setTextSize(1,1);
+
+  tft.setTextColor(txt_color5);
+  tft.setTextSize(2,2);
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("WiFi : ");
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("MQTT: ");   
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("Limit : ");  
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("Tempo : ");
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("Time : ");
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("Bat : ");   
+}
+
+void show_masq_3()
+{
+  int16_t col_cord,line_cord;
+  tft.fillScreen(bg_color);
+  col_cord=0;
+  line_cord=first_line;
+  tft.setCursor(col_cord,line_cord);
+  tft.setTextSize(1,1);
+
+  tft.setTextColor(txt_color5);
+  tft.setTextSize(2,2);
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("AHT21 : ");
+  
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("CCS811: ");   
+  
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("SDS011: ");  
+  
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("RTC : ");
+  
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("SD : ");
+
+  line_cord +=line_step;
+  tft.setCursor(col_cord,line_cord);
+  tft.print("... : ");   
+}
+
+/*
+  This function displays sensors data on the screen
+*/
+void show_info(int16_t c_cord,uint16_t l_cord,int16_t couleur,String info,char type)
+{
+    tft.setTextColor(couleur);
+    tft.setTextSize(1,2);
+    tft.setCursor(c_cord,l_cord);
+    tft.print(info);
+    
+}
+
+void clr_data(int16_t c_cord,uint16_t l_cord)
+{
+  uint16_t l;
+  l=c_cord+50;
+  if(127<l)l=126-c_cord;
+  else l=50;
+  tft.fillRect(c_cord,l_cord,l,line_step-2,bg_color);
+  return;
+}
+/*
+  This function displays sensors data on the screen
+*/
+void show_data(int16_t c_cord,uint16_t l_cord,int16_t couleur,float dat,char type)
+{
+    tft.setTextColor(couleur);
+//    tft.setTextSize(1,2);  //modifie ce 16-05-2022
+    tft.setTextSize(1,2);
+    tft.setCursor(c_cord,l_cord);
+    {
+      if(type=='t')tft.print(String(dat,1));
+      else tft.print(String(dat,0));
+      switch(type)
+      {
+        case 't':
+        {
+          tft.setTextSize(1,1);
+          tft.print('*');
+          tft.setTextSize(1,2);
+          tft.print('C');
+          break;
+        }
+        case 'h':
+        {
+          tft.print("%");
+          break;
+        }
+        case 'v':
+        {
+          tft.print("ppb");
+          break;
+        }
+        case 'c':
+        {
+          tft.print("ppm");
+          break;
+        }
+        case 'p':
+        {
+          tft.print("hPa");
+          break;
+        }
+      
+      }
+    }
+}
+
+/*
+  This function show current time
+/*/
+void show_time(int16_t c_cord,uint16_t l_cord,int16_t couleur,String time)
+{
+  tft.setTextSize(1);
+  tft.setTextColor(couleur);
+  tft.setCursor(c_cord,l_cord);
+  tft.print(time);
+  
+  
+}
+/*
+  This function blinks a purple or green start according to the
+  WIFI connection status 
+*/
+void show_star(int16_t c_cord,uint16_t l_cord,int16_t couleur,char dat,boolean oui )
+{
+  uint16_t coulr;
+  if(oui)
+  {
+    if(connected) coulr=con_color;
+    else coulr= couleur;
+  }
+  else coulr=bg_color;
+  tft.setTextSize(1);
+  tft.setTextColor(coulr);
+  tft.setCursor(c_cord,l_cord+4);
+  tft.print(dat);
+  if(mqtt_on) coulr=txt_color4;
+  else coulr=txt_color3;
+  if(!oui) coulr=bg_color;
+  tft.setTextSize(1);
+  tft.setTextColor(coulr);
+  tft.setCursor(c_cord+8,l_cord+4);
+  tft.print("mqtt");
+  // For microSD
+  if(sd_card) coulr=txt_color4;
+  else coulr=txt_color3;
+  if(!oui) coulr=bg_color;
+  if(close_sd) coulr=bg_color;
+  tft.setTextSize(1);
+  tft.setTextColor(coulr);
+  tft.setCursor(c_cord+36,l_cord+4);
+  tft.print("SD");
+  
+}
+
+void disp_masq()
+{
+  tft.fillScreen(bg_color);
+  tft.fillRect(0,118,32,10,ST77XX_BLUE);
+  tft.fillRect(32,118,32,10,ST77XX_GREEN);
+  tft.fillRect(64,118,32,10,ST77XX_YELLOW);
+  tft.fillRect(96,118,32,10,ST77XX_RED);
+
+  tft.setTextSize(1);
+
+  tft.setTextColor(ST7735_BLACK);
+  tft.setCursor(37,120);
+  tft.print("Good");
+  tft.setCursor(69,120);
+  tft.print("High");
+
+  tft.setTextColor(ST7735_CYAN);
+  tft.setCursor(5,120);
+  tft.print("Low");
+  tft.setCursor(101,120);
+  tft.print("Bad");
+
+  tft.drawRoundRect(0,18,128,32,3,ST7735_WHITE);
+  tft.setTextColor(ST7735_CYAN);
+  tft.setCursor(5,20);
+  tft.print("Temp.");
+  tft.setCursor(48,20);
+  tft.print("Hum.");
+  tft.setCursor(80,20);
+  tft.print("Pressure");
+
+  tft.drawRoundRect(0,52,128,32,3,ST7735_WHITE);
+
+  //tft.setTextColor(ST7735_WHITE);
+  tft.setCursor(88,55);
+  tft.print("eCO2");
+  tft.setCursor(25,55);
+  tft.print("TVOC");
+
+  tft.drawRoundRect(0,86,128,32,3,ST77XX_WHITE);
+
+  tft.setCursor(90,90);
+  tft.print("PM10");
+
+  tft.setCursor(25,90);
+  tft.print("PM2.5");
+       
+}
+
+void show_date()
+{
+  String C_Date, C_Time;
+
+      uint8_t yr = rtc.getYear();
+      uint8_t mm = rtc.getMonth();
+      uint8_t dd = rtc.getDay();
+      uint8_t hr = rtc.getHour();
+      uint8_t min = rtc.getMinute();
+      uint8_t sec = rtc.getSecond();
+      if(yr>99)
+      {
+        yr=22;
+        mm=1;
+        dd=1;
+      }
+      if(hr>23)
+      {
+        hr=0;
+        min=0;
+        sec=0;
+      }
+      if(yr<10)C_Date += '0';
+      C_Date += String(yr);
+      C_Date +='-';
+      if(mm<10)C_Date += '0';
+      C_Date += String(mm);
+      C_Date +='-';
+      if(dd<10)C_Date += '0';
+      C_Date += String(dd);
+
+      // show new date
+      if(old_date != C_Date){
+        show_time(4,2,bg_color,old_date);
+        show_time(4,2,ST77XX_CYAN,C_Date);
+        old_date=C_Date;
+      }
+    
+      if(hr<10)C_Time+='0';
+      C_Time += String(hr);
+      C_Time +=':';
+      if(min<10)C_Time +='0';
+      C_Time += String(min);
+      C_Time +=':';
+      if(sec<10)C_Time +='0';
+      C_Time += String(sec);
+    
+      // show new time
+      if(old_time != C_Time){
+        show_time(4,10,bg_color,old_time);
+        show_time(4,10,ST77XX_CYAN,C_Time);
+        old_time=C_Time;
+      }
+      now_date=C_Date;
+      now_date +=' ';
+      now_date +=C_Time; 
+
+//      Serial.printf("Date: %s & Time: %s \n", C_Date, C_Time);
 }
