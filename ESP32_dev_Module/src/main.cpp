@@ -8,6 +8,8 @@ extern "C" {
 }
 #include <AsyncMqttClient.h>
 
+#include <SD.h>
+
 /*******************************************************************************/
 /*********************** VARIABLES FOR NETWORK MANAGEMENT **********************/
 /*******************************************************************************/
@@ -17,6 +19,8 @@ volatile bool connected;
 volatile bool connecting;
 volatile bool mqtt_on;
 
+volatile boolean sd_card = false;
+
 // ssid.c_str() will convert these String to const char*
 String ssid, pwd, mqtt_server,mqtt_topic,mqtt_id;
 int mqtt_port;
@@ -25,6 +29,13 @@ File save_File;
 
 AsyncMqttClient mqttClient;
 
+File dataFile;
+boolean sd_on,data_available,file_open,close_sd;
+boolean dataToSave;
+int chipSelect = 15;
+uint8_t last_minute,button_tmr;
+uint16_t sd_chk_tmr;
+String tx_data;
 /*******************************************************************************/
 /********************* FUNCTION DECLARATION ************************************/
 /*******************************************************************************/
@@ -36,6 +47,47 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason);
 void onMqttSubscribe(uint16_t packetId, uint8_t qos);
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total);
 
+
+
+void init_sd()
+{
+  //data_available=false;
+  if (!SD.begin(chipSelect)) 
+  {
+    Serial.println("Card failed, or not present");
+    sd_on=false;
+  //  close_sd=true;
+  }
+  else
+  {
+    Serial.println("card initialized.");
+    sd_card=true;
+    sd_on=true;
+    close_sd=false;
+    file_open=false; // File initialization
+    dataFile = SD.open("/datalog.txt");
+    if (dataFile) 
+    {
+      data_available=false;
+      if(dataFile.available())
+      {
+        data_available=true;
+        Serial.println("data available for upload");
+      }
+      dataFile.close();
+    }
+  }
+}
+void button_isr()
+{
+  if(button_tmr == 0)
+  {
+    button_tmr=50;
+//    if (close_sd) close_sd=false;
+//    else close_sd=true;
+  }
+
+}
 
 /*************************  MAIN FUNCTION  *************************************/
 void setup() {
@@ -102,6 +154,25 @@ void setup() {
   }
   save_File.close();
 
+
+  pinMode(chipSelect,OUTPUT);
+  button_tmr=150;
+
+  init_sd();
+/*
+  if (!SD.begin(chipSelect)) 
+  {
+    Serial.println("Card failed, or not present");
+    //  show_info(100,90,txt_color3,"NO",'i');
+  }
+  else
+  {
+    Serial.println("card initialized.");
+    //  show_info(100,90,txt_color4,"Ready",'i');
+  }
+*/
+  delay(10000);
+
 }
 
 /************************** LOOP FUNCTION *************************************/
@@ -136,6 +207,63 @@ void loop() {
           }
         }
       }
+    }
+
+
+    //  dataToSave = true;    // Only activated by item to save (Exp: Sensors, user data, ...)
+    
+    if(dataToSave && sd_card)
+    {
+    
+      dataFile = SD.open("/datalog.txt", FILE_APPEND);
+      Serial.println("File operation");
+      if(dataFile)
+      {
+        tx_data +='\0';
+        dataFile.println(tx_data);
+        dataFile.close();
+        Serial.println("File write ok");
+        data_available=true;
+        dataToSave=false;
+      } 
+      else 
+      {
+        Serial.println("Failed to write");
+
+      }
+
+      // Create another file to save data for each satellite
+      dataFile = SD.open("/data.txt", FILE_APPEND);
+      Serial.println("Save operation");
+      if(dataFile)
+      {
+        dataFile.println(tx_data);
+      //  dataFile.println(String(Json_Buffer));
+        dataFile.close();
+        Serial.println("Saved ok");
+        data_available=true;
+        dataToSave=false;
+      } 
+      else 
+      {
+        Serial.println("Failed to save");
+      }
+      if(close_sd)sd_card=false;
+    
+    }
+    else 
+    {
+      if(close_sd && sd_card)sd_card=false;
+    }
+    if(sd_chk_tmr)sd_chk_tmr--;
+    else 
+    {
+//      if(!sd_card && !close_sd)
+      if(!sd_card )
+      {
+        init_sd(); 
+      }
+      sd_chk_tmr=1200;
     }
   }
 
