@@ -11,7 +11,6 @@ extern "C" {
 #include <SD.h>
 
 
-PCF8583 rtc(0xA0);
 
 /*******************************************************************************/
 /*********************** VARIABLES FOR NETWORK MANAGEMENT **********************/
@@ -22,16 +21,20 @@ volatile bool connected;
 volatile bool connecting;
 volatile bool mqtt_on;
 
-volatile boolean sd_card = false;
 
 // ssid.c_str() will convert these String to const char*
 String ssid, pwd, mqtt_server,mqtt_topic,mqtt_id;
 int mqtt_port;
 
-File save_File;
-
 AsyncMqttClient mqttClient;
 
+/*******************************************************************************/
+/*********************** VARIABLES FOR STORAGE MANAGEMENT **********************/
+/*******************************************************************************/
+
+volatile boolean sd_card = false;
+
+File save_File;
 File dataFile;
 boolean sd_on,data_available,file_open,close_sd;
 boolean dataToSave;
@@ -39,6 +42,28 @@ int chipSelect = 15;
 uint8_t last_minute,button_tmr;
 uint16_t sd_chk_tmr;
 String tx_data;
+
+/*******************************************************************************/
+/*********************** VARIABLES FOR TIME MANAGEMENT **********************/
+/*******************************************************************************/
+PCF8583 rtc(0xA0);
+/*
+#define sens1_time  100
+#define sens2_time  120
+#define sens3_time  150
+#define sens4_time  170
+#define sens5_time  200
+*/
+uint8_t year,month,day,hour,minute,second;
+
+String now_date,last_date,tx_date;
+String old_time, old_date;
+
+/*
+uint16_t con_tmr, sens1_tmr, sens2_tmr, sens3_tmr, sens4_tmr, sens5_tmr,sd_chk_tmr; // timers used for events trigger
+*/
+
+
 /*******************************************************************************/
 /********************* FUNCTION DECLARATION ************************************/
 /*******************************************************************************/
@@ -50,47 +75,13 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason);
 void onMqttSubscribe(uint16_t packetId, uint8_t qos);
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total);
 
+String get_time();
+void show_date();
+
+void init_sd();
+void button_isr();
 
 
-void init_sd()
-{
-  //data_available=false;
-  if (!SD.begin(chipSelect)) 
-  {
-    Serial.println("Card failed, or not present");
-    sd_on=false;
-  //  close_sd=true;
-  }
-  else
-  {
-    Serial.println("card initialized.");
-    sd_card=true;
-    sd_on=true;
-    close_sd=false;
-    file_open=false; // File initialization
-    dataFile = SD.open("/datalog.txt");
-    if (dataFile) 
-    {
-      data_available=false;
-      if(dataFile.available())
-      {
-        data_available=true;
-        Serial.println("data available for upload");
-      }
-      dataFile.close();
-    }
-  }
-}
-void button_isr()
-{
-  if(button_tmr == 0)
-  {
-    button_tmr=50;
-//    if (close_sd) close_sd=false;
-//    else close_sd=true;
-  }
-
-}
 
 /*************************  MAIN FUNCTION  *************************************/
 void setup() {
@@ -157,7 +148,10 @@ void setup() {
   }
   save_File.close();
 
-
+  // Initiale the rtc
+  rtc.setMode(MODE_CLOCK_32KHZ);
+  
+  
   pinMode(chipSelect,OUTPUT);
   button_tmr=150;
 
@@ -210,6 +204,14 @@ void loop() {
           }
         }
       }
+    }
+
+    // Get updated time for any information to transfert
+    now_date=get_time();
+    if(last_date != now_date)
+    { 
+      // show_date();
+      last_date=now_date;
     }
 
 
@@ -398,4 +400,76 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       } else {
         Serial.println("Failed to save");
       }
+}
+
+String get_time()
+{
+  String date;
+
+  year=rtc.getYear();
+  month=rtc.getMonth();
+  day=rtc.getDay();
+  hour=rtc.getHour();
+  minute=rtc.getMinute();
+  second=rtc.getSecond();
+  if(year<10)date +='0';
+  date += String(year);
+  date +='-';
+  if(month<10)date +='0';
+  date += String(month);
+  date +='-';
+  if(day<10)date +='0';
+  date += String(day);
+  date +=' ';
+  if(hour<10)date +='0';
+  date += String(hour);
+  date +=':';
+  if(minute<10)date +='0';
+  date += String(minute);
+  date +=':';
+  if(second<10)date +='0';
+  date += String(second);
+  return date;  
+}
+
+// Initialize the SD card for any storage or data transfert
+void init_sd()
+{
+  //data_available=false;
+  if (!SD.begin(chipSelect)) 
+  {
+    Serial.println("Card failed, or not present");
+    sd_on=false;
+  //  close_sd=true;
+  }
+  else
+  {
+    Serial.println("card initialized.");
+    sd_card=true;
+    sd_on=true;
+    close_sd=false;
+    file_open=false; // File initialization
+    dataFile = SD.open("/datalog.txt");
+    if (dataFile) 
+    {
+      data_available=false;
+      if(dataFile.available())
+      {
+        data_available=true;
+        Serial.println("data available for upload");
+      }
+      dataFile.close();
+    }
+  }
+}
+
+void button_isr()
+{
+  if(button_tmr == 0)
+  {
+    button_tmr=50;
+//    if (close_sd) close_sd=false;
+//    else close_sd=true;
+  }
+
 }
