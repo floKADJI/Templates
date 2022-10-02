@@ -7,8 +7,11 @@ extern "C" {
 	#include "freertos/timers.h"
 }
 #include <AsyncMqttClient.h>
-
+#include "PCF8583.h"
 #include <SD.h>
+
+
+PCF8583 rtc(0xA0);
 
 /*******************************************************************************/
 /*********************** VARIABLES FOR NETWORK MANAGEMENT **********************/
