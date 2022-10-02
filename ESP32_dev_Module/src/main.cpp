@@ -87,13 +87,17 @@ const int16_t line_step = 18,first_line= 0;
 // Initialize the 1.44" TFT_LCD.
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
-
+/*******************************************************************************/
+/*********************** VARIABLES OF HARDWARE MANAGEMENT **********************/
+/*******************************************************************************/
 #define hb_time     35
 // #define date_tmr  10
-#define con_time   400
 #define con_led    25
 #define button     32   //  TO REMOVE LATER
 #define pin_bat    34   //  TO CHANGE LATER
+
+float vbat=3.6;
+int bat_tmr;
 
 /*******************************************************************************/
 /********************* FUNCTION DECLARATION ************************************/
@@ -123,7 +127,7 @@ void show_info(int16_t c_cord,uint16_t l_cord,int16_t couleur,String info,char t
 void show_data(int16_t c_cord,uint16_t l_cord,int16_t couleur,float dat,char type);
 void clr_data(int16_t c_cord,uint16_t l_cord);
 void show_star(int16_t c_cord,uint16_t l_cord,int16_t couleur,char dat,boolean oui );
-// void show_battery(int x0,int y0,int w,int h,float vb);
+void show_battery(int x0,int y0,int w,int h,float vb);
 
 /*
 void load_credentials();
@@ -235,9 +239,14 @@ void setup() {
   // Initiale the rtc
   rtc.setMode(MODE_CLOCK_32KHZ);
   
-  
   pinMode(chipSelect,OUTPUT);
+  pinMode(con_led,OUTPUT);
+  digitalWrite(con_led,HIGH);
   button_tmr=150;
+  pinMode(button,INPUT_PULLUP);
+  pinMode(pin_bat,INPUT);
+  //  i2c_scanner();
+  
 
   init_sd();
 /*
@@ -261,15 +270,6 @@ void setup() {
   sens5_tmr=100;
 */
 
-/* 
-  pinMode(chipSelect,OUTPUT);
-  pinMode(con_led,OUTPUT);
-  digitalWrite(con_led,HIGH);
-  button_tmr=150;
-  pinMode(button,INPUT_PULLUP);
-  pinMode(pin_bat,INPUT);
-  i2c_scanner();
-*/
   delay(10000);
 
 }
@@ -289,6 +289,9 @@ void loop() {
   {
     delay(100);
 
+    digitalWrite(con_led,HIGH);
+    show_star(78,0,ST77XX_MAGENTA,'*',false);
+
     // Get updated time for any information to transfert
     now_date=get_time();
     if(last_date != now_date)
@@ -305,6 +308,44 @@ void loop() {
       show_star(78,0,ST77XX_MAGENTA,'*',true);
       if(!connected)hb_tmr=15;
     }
+
+    if(bat_tmr)bat_tmr--;
+    else
+    {
+      bat_tmr=100;
+      vbat = analogRead(pin_bat)*3.2/4095+0.2;
+      vbat *= 2;
+      Serial.println("vbat = ");
+      Serial.println(vbat);
+      show_battery(64,0,10,16,vbat);
+      /*
+      if(vbat<4.2)vbat += 0.1;
+      else vbat = 3.6;
+      show_date();
+      */
+
+      /*
+
+        tx_data = "{\""+sat_name+"\":{\"date\":\""+now_date+"\",";
+        tx_data += "\"vBAT\":{\"value\":";
+        tx_data += vbat;
+        tx_data += ",\"unit\":\"V\"}}}";
+
+        Serial.println(tx_data);
+        
+        if(mqtt_on)
+        {
+          digitalWrite(con_led,LOW);
+          packetIdPub1 = mqttClient.publish(mqtt_topic.c_str(), 1, true, tx_data.c_str());
+          packetIdPub2=packetIdPub1;
+        }
+        else
+        {
+          dataToSave = true;
+        }
+      */
+    }
+
 
     if(con_tmr) con_tmr--;
     else{
@@ -329,6 +370,32 @@ void loop() {
       }
     }
 
+/*    
+    if(mqtt_on && data_available && sd_card)
+    {
+      
+      dataFile = SD.open("/datalog.txt");
+      if (dataFile) 
+      {
+        Serial.println("Uploading datalog.txt");
+        while (dataFile.available()) 
+        {
+          texte=dataFile.readStringUntil('\0');
+          packetIdPub2 = mqttClient.publish(mqtt_topic.c_str(), 1, true,texte.c_str());
+          Serial.println("Information sent");
+          Serial.println(texte);
+          if(packetIdPub2);
+        }
+        dataFile.flush();
+        dataFile.close();
+      //  dataFile = SD.open("/datalog.txt",FILE_APPEND);
+        data_count=0;
+        data_available=false;
+        if(close_sd)sd_card=false;
+      }     
+    
+    }
+*/
 
     //  dataToSave = true;    // Only activated by item to save (Exp: Sensors, user data, ...)
     
@@ -965,4 +1032,36 @@ void show_date()
       now_date +=C_Time; 
 
 //      Serial.printf("Date: %s & Time: %s \n", C_Date, C_Time);
+}
+
+void show_battery(int x0,int y0,int w,int h,float vb)
+{
+  int vx,y,v,col;
+  float vy,vz;
+  vy=vb-3.6;
+  vy=vy/0.6;
+  vy=vy*100.0;
+  vx=(int)vy;
+  col=ST77XX_GREEN;
+  if(vx<70) col=ST77XX_YELLOW;
+  if(vx<40) col=ST77XX_RED;
+  if(vx<20) col=ST77XX_MAGENTA;
+
+  y=(100-vx)*h;
+  y = y/100;
+  tft.fillRect(x0,y0+2,w,h,bg_color);
+  tft.drawRect(x0,y0+2,w,h,col);
+  tft.drawRect(x0+w/4,y0,w/2,2,col);
+  tft.fillRect(x0+w/4+1,y0+1,w/2-2,4,bg_color);
+  if(96<vx)
+  {
+    tft.fillRect(x0,y0+2,w,h,ST77XX_GREEN);
+    tft.fillRect(x0+w/4,y0,w/2,2,ST77XX_GREEN);
+  }
+  else
+  {
+    if(vx<10) col=bg_color;
+    //tft.drawRect(x0,y0+2,w,h,col);
+      tft.fillRect(x0+1,y0+2,w-2,h-y+1,col);
+  }
 }
